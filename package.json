@@ -1,0 +1,29 @@
+{
+  "name": "api-patentes-chile",
+  "version": "1.0.0",
+  "description": "API para consultar información de vehículos en Chile por patente",
+  "main": "api-server.js",
+  "scripts": {
+    "start": "node api-server.js",
+    "consultar": "node playwright-scraper.js",
+    "postinstall": "npx playwright install firefox && npx playwright install-deps firefox"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "scraper",
+    "patentes",
+    "chile",
+    "playwright"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DropoutCapital/scraper_multas.git"
+  }
+}

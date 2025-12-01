@@ -1,0 +1,12 @@
+# Configuración para Cloudflare Workers
+# Este archivo se usa con Wrangler CLI para desplegar el Worker
+
+name = "patente-scraper-worker"
+main = "cloudflare-worker.js"
+compatibility_date = "2024-01-01"
+
+# Variables de entorno (opcional)
+[vars]
+ALLOWED_DOMAINS = "patentechile.com,www.patentechile.com"
+TIMEOUT_MS = "30000"
+MAX_RETRIES = "3"
