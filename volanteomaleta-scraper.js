@@ -13,14 +13,18 @@ const { firefox } = require('playwright');
 async function consultarPropietario(patente) {
   const browser = await firefox.launch({
     headless: true,
-    timeout: 30000
+    timeout: 45000
   });
 
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
     viewport: { width: 1280, height: 720 },
     locale: 'es-CL',
-    timezoneId: 'America/Santiago'
+    timezoneId: 'America/Santiago',
+    extraHTTPHeaders: {
+      'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
+    }
   });
 
   const page = await context.newPage();
@@ -28,14 +32,37 @@ async function consultarPropietario(patente) {
   try {
     console.log(`Consultando patente: ${patente}`);
 
-    // Ir a la página
-    await page.goto('https://www.volanteomaleta.com/', {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
-    });
+    // Ir a la página con retry
+    let pageLoaded = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`Intento ${attempt}: Cargando página...`);
+        await page.goto('https://www.volanteomaleta.com/', {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000
+        });
+        pageLoaded = true;
+        break;
+      } catch (e) {
+        console.log(`Intento ${attempt} falló: ${e.message}`);
+        if (attempt === 3) throw e;
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
 
-    // Esperar el input
-    await page.waitForSelector('input[name="term"]', { timeout: 10000 });
+    // Esperar el input con retry
+    let formFound = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await page.waitForSelector('input[name="term"]', { timeout: 15000 });
+        formFound = true;
+        break;
+      } catch (e) {
+        console.log(`Intento ${attempt}: Formulario no encontrado, reintentando...`);
+        if (attempt === 3) throw e;
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      }
+    }
     console.log('Formulario encontrado');
 
     // Ingresar la patente
