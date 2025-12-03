@@ -1,0 +1,13 @@
+# Cloudflare Worker con Browser Rendering para consulta de vehículos
+name = "patente-vehiculo-browser"
+main = "cloudflare-worker-vehiculo-browser.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "58b21353ac76e6601e493baceab0ca14"
+
+[vars]
+TIMEOUT_MS = "30000"
+
+# Binding para Browser Rendering (Puppeteer)
+[browser]
+binding = "BROWSER"

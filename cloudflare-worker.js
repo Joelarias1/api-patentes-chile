@@ -2,7 +2,196 @@
  * Cloudflare Worker para hacer scraping de patentechile.com
  * Este Worker actúa como proxy desde la infraestructura de Cloudflare,
  * lo que permite eludir las protecciones anti-bot del sitio objetivo.
+ *
+ * Endpoints:
+ * - /consultar-patente?patente=XXX  → Solo multas (endpoint actual)
+ * - /consultar?patente=XXX          → Datos completos del vehículo (propietario, vehículo, RT, SOAP, etc.)
  */
+
+/**
+ * Parsear HTML de /resultados para extraer toda la información del vehículo
+ * Estructura esperada: tabla con celdas <td><b>Label</b></td><td>Valor</td>
+ */
+function parseResultadosHtml(html, patente) {
+  const result = {
+    success: true,
+    patente: patente,
+    timestamp: new Date().toISOString(),
+    source: 'cloudflare-worker',
+    propietario: null,
+    vehiculo: null,
+    multas: null,
+    revisionTecnica: null,
+    gases: null,
+    permisoCirculacion: null,
+    soap: null,
+    transportePublico: null,
+    restriccionVehicular: null
+  };
+
+  try {
+    // Verificar si hay error o patente no encontrada
+    const errorPatterns = [
+      'no se encontr',
+      'patente no válida',
+      'error al consultar',
+      'sin resultados'
+    ];
+
+    const htmlLower = html.toLowerCase();
+    const hasError = errorPatterns.some(pattern => htmlLower.includes(pattern));
+
+    if (hasError && !htmlLower.includes('multas')) {
+      result.success = false;
+      result.error = 'Patente no encontrada o error en consulta';
+      return result;
+    }
+
+    // Función helper para extraer valor de celda después de un label
+    const extractValue = (label) => {
+      // Patrón: <td><b>Label</b></td><td>Valor</td> o <td>Label</td><td>Valor</td>
+      const patterns = [
+        new RegExp(`<td[^>]*>\\s*<b>${label}<\\/b>\\s*<\\/td>\\s*<td[^>]*>([^<]+)<\\/td>`, 'i'),
+        new RegExp(`<td[^>]*>${label}\\s*<\\/td>\\s*<td[^>]*>([^<]+)<\\/td>`, 'i'),
+        new RegExp(`<b>${label}<\\/b>\\s*[:\\s]*([^<]+)(?:<|$)`, 'i'),
+        new RegExp(`${label}[:\\s]+([^<\\n]+)`, 'i')
+      ];
+
+      for (const pattern of patterns) {
+        const match = html.match(pattern);
+        if (match && match[1]) {
+          const value = match[1].trim();
+          if (value && value !== '-' && value !== 'N/A') {
+            return value;
+          }
+        }
+      }
+      return null;
+    };
+
+    // Extraer datos del propietario
+    const rut = extractValue('RUT');
+    const nombre = extractValue('Nombre');
+
+    if (rut || nombre) {
+      result.propietario = {
+        rut: rut,
+        nombre: nombre
+      };
+    }
+
+    // Extraer datos del vehículo
+    const vehiculoData = {
+      patente: extractValue('Patente') || patente,
+      tipo: extractValue('Tipo'),
+      marca: extractValue('Marca'),
+      modelo: extractValue('Modelo'),
+      año: null,
+      color: extractValue('Color'),
+      numeroMotor: extractValue('N° de motor') || extractValue('Numero Motor') || extractValue('Motor'),
+      numeroChasis: extractValue('N° de chasis') || extractValue('Numero Chasis') || extractValue('Chasis'),
+      procedencia: extractValue('Procedencia'),
+      fabricante: extractValue('Fabricante'),
+      tipoSello: extractValue('Tipo Sello') || extractValue('Sello'),
+      combustible: extractValue('Combustible')
+    };
+
+    // Extraer año (puede ser número)
+    const añoMatch = html.match(/Año[:\s]*<\/td>\s*<td[^>]*>(\d{4})/i) ||
+                     html.match(/Año[:\s]+(\d{4})/i);
+    if (añoMatch) {
+      vehiculoData.año = parseInt(añoMatch[1]);
+    }
+
+    // Solo agregar si tiene datos
+    if (Object.values(vehiculoData).some(v => v !== null && v !== patente)) {
+      result.vehiculo = vehiculoData;
+    }
+
+    // Extraer multas
+    const tieneMultasMatch = html.match(/tiene multas[:\s]*(sí|si|no)/i) ||
+                             html.match(/(no tiene multas|sin multas)/i) ||
+                             html.match(/multas[:\s]*(sí|si|no)/i);
+
+    const cantidadMultasMatch = html.match(/cantidad[:\s]*(\d+)/i) ||
+                                 html.match(/(\d+)\s*multa/i);
+
+    result.multas = {
+      tiene: tieneMultasMatch ? tieneMultasMatch[1].toLowerCase().includes('s') : false,
+      cantidad: cantidadMultasMatch ? parseInt(cantidadMultasMatch[1]) : 0,
+      mensaje: extractValue('Multas') || 'Sin información'
+    };
+
+    // Extraer revisión técnica
+    const rtData = {
+      kilometraje: extractValue('Kilometraje'),
+      comuna: extractValue('Comuna'),
+      mes: extractValue('Mes'),
+      ultimoControl: extractValue('Último Control') || extractValue('Ultimo Control'),
+      fechaVencimiento: extractValue('Fecha de Vencimiento') || extractValue('Vencimiento')
+    };
+
+    if (Object.values(rtData).some(v => v !== null)) {
+      result.revisionTecnica = rtData;
+    }
+
+    // Extraer gases
+    const gasesData = {
+      ultimoControl: extractValue('Gases') || extractValue('Control Gases'),
+      fechaVencimiento: extractValue('Vencimiento Gases')
+    };
+
+    if (Object.values(gasesData).some(v => v !== null)) {
+      result.gases = gasesData;
+    }
+
+    // Extraer permiso de circulación
+    const permisoData = {
+      añoPago: extractValue('Año Pago') || extractValue('Permiso'),
+      municipalidad: extractValue('Municipalidad'),
+      fechaPago: extractValue('Fecha de Pago') || extractValue('Fecha Pago')
+    };
+
+    if (Object.values(permisoData).some(v => v !== null)) {
+      result.permisoCirculacion = permisoData;
+    }
+
+    // Extraer SOAP
+    const soapData = {
+      compania: extractValue('Compañía') || extractValue('Compania') || extractValue('SOAP'),
+      fechaInicio: extractValue('Fecha Inicio') || extractValue('Inicio SOAP')
+    };
+
+    if (Object.values(soapData).some(v => v !== null)) {
+      result.soap = soapData;
+    }
+
+    // Extraer transporte público
+    const esTransporte = extractValue('Es Transporte Público') || extractValue('Transporte');
+    const tipoTransporte = extractValue('Tipo Transporte');
+
+    if (esTransporte || tipoTransporte) {
+      result.transportePublico = {
+        es: esTransporte,
+        tipo: tipoTransporte
+      };
+    }
+
+    // Extraer restricción vehicular
+    const restriccion = extractValue('Restricción') || extractValue('Restriccion Vehicular');
+    if (restriccion) {
+      result.restriccionVehicular = {
+        condicion: restriccion
+      };
+    }
+
+  } catch (error) {
+    result.success = false;
+    result.error = `Error al parsear HTML: ${error.message}`;
+  }
+
+  return result;
+}
 
 /**
  * Parsear HTML para extraer información de multas y vehículo
@@ -166,6 +355,8 @@ export default {
       // Enrutar según el path
       if (pathname === '/consultar-patente') {
         return await consultarPatente(request, env, ctx);
+      } else if (pathname === '/consultar') {
+        return await consultarVehiculo(request, env, ctx);
       } else if (pathname === '/scrape-patente') {
         return await scrapePatente(request, env, ctx);
       }
@@ -497,6 +688,118 @@ export async function consultarPatente(request, env, ctx) {
   } catch (error) {
     return new Response(JSON.stringify({
       error: 'Error al consultar patente',
+      message: error.message
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * Función para consultar datos completos del vehículo (propietario, vehículo, RT, SOAP, etc.)
+ * Endpoint: /consultar?patente=ABC123
+ * Hace POST a https://www.patentechile.com/resultados
+ */
+export async function consultarVehiculo(request, env, ctx) {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  };
+
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  try {
+    const url = new URL(request.url);
+    const patente = url.searchParams.get('patente');
+
+    if (!patente) {
+      return new Response(JSON.stringify({
+        error: 'Parámetro "patente" es requerido',
+        usage: '/consultar?patente=ABC123'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // URL de resultados de PatenteChile
+    const consultaUrl = 'https://www.patentechile.com/resultados';
+
+    // Headers que simulan un navegador real desde Cloudflare
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+      'Referer': 'https://www.patentechile.com/',
+      'Origin': 'https://www.patentechile.com',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'same-origin',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
+      'DNT': '1',
+      'Connection': 'keep-alive',
+      'CF-Connecting-IP': request.headers.get('CF-Connecting-IP') || '127.0.0.1',
+      'CF-Ray': request.headers.get('CF-Ray') || 'cloudflare-worker',
+      'CF-Visitor': '{"scheme":"https"}',
+      'X-Forwarded-For': request.headers.get('CF-Connecting-IP') || '127.0.0.1',
+      'X-Forwarded-Proto': 'https',
+      'X-Real-IP': request.headers.get('CF-Connecting-IP') || '127.0.0.1'
+    };
+
+    // Datos del formulario - el sitio espera 'patente' como parámetro
+    const formData = new URLSearchParams({
+      'patente': patente.toUpperCase()
+    });
+
+    // Realizar la consulta POST
+    const response = await fetch(consultaUrl, {
+      method: 'POST',
+      headers: headers,
+      body: formData,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(30000)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Error en consulta: ${response.status}`);
+    }
+
+    const resultHtml = await response.text();
+
+    // Verificar si hay CAPTCHA en la respuesta
+    if (resultHtml.toLowerCase().includes('just a moment') &&
+        resultHtml.toLowerCase().includes('checking your browser')) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'CAPTCHA detectado',
+        message: 'El sitio está mostrando un CAPTCHA de Cloudflare'
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Parsear HTML para extraer información estructurada
+    const parsedData = parseResultadosHtml(resultHtml, patente.toUpperCase());
+
+    return new Response(JSON.stringify(parsedData), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Error al consultar vehículo',
       message: error.message
     }), {
       status: 500,

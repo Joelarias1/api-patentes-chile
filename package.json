@@ -9,6 +9,7 @@
     "postinstall": "npx playwright install firefox && npx playwright install-deps firefox"
   },
   "dependencies": {
+    "@cloudflare/puppeteer": "^1.0.4",
     "playwright": "^1.40.0"
   },
   "engines": {

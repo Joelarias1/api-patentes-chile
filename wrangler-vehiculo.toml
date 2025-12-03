@@ -1,0 +1,8 @@
+# Configuración para Cloudflare Workers - Consulta Vehículo
+name = "patente-consulta-vehiculo"
+main = "cloudflare-worker-vehiculo.js"
+compatibility_date = "2024-01-01"
+account_id = "58b21353ac76e6601e493baceab0ca14"
+
+[vars]
+TIMEOUT_MS = "30000"
