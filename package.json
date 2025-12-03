@@ -6,10 +6,10 @@
   "scripts": {
     "start": "node api-server.js",
     "consultar": "node playwright-scraper.js",
-    "postinstall": "npx playwright install firefox chromium && npx playwright install-deps firefox chromium"
+    "postinstall": "npx playwright install firefox && npx playwright install-deps firefox"
   },
   "dependencies": {
-    "playwright": "^1.49.1"
+    "playwright": "^1.40.0"
   },
   "engines": {
     "node": ">=18.0.0"

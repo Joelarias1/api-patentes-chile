@@ -4,27 +4,7 @@
  * revisión técnica, SOAP, permisos, multas, etc.
  */
 
-const { firefox, chromium } = require('playwright');
-
-// User Agents rotativos
-const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-];
-
-// Delay aleatorio
-const randomDelay = (min, max) => {
-  const delay = Math.floor(Math.random() * (max - min + 1)) + min;
-  return new Promise(resolve => setTimeout(resolve, delay));
-};
-
-// Obtener User Agent aleatorio
-const getRandomUserAgent = () => {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-};
+const { firefox } = require('playwright');
 
 /**
  * Consultar información completa de un vehículo por patente
@@ -33,141 +13,62 @@ const getRandomUserAgent = () => {
  * @returns {Promise<object>} - Información completa del vehículo
  */
 async function consultarVehiculo(patente, tipo = 'vehiculo') {
-  // Alternar entre Firefox y Chromium
-  const useChromium = Math.random() > 0.5;
-  const browserType = useChromium ? chromium : firefox;
-
-  console.log(`Usando navegador: ${useChromium ? 'Chromium' : 'Firefox'}`);
-
-  const browser = await browserType.launch({
+  const browser = await firefox.launch({
     headless: true,
-    timeout: 45000,
-    args: useChromium ? [
-      '--disable-blink-features=AutomationControlled',
-      '--disable-dev-shm-usage',
-      '--no-sandbox',
-    ] : []
+    timeout: 60000
   });
-
-  const userAgent = getRandomUserAgent();
-  console.log(`User-Agent: ${userAgent.substring(0, 50)}...`);
 
   const context = await browser.newContext({
-    userAgent,
-    viewport: {
-      width: 1920 + Math.floor(Math.random() * 100),
-      height: 1080 + Math.floor(Math.random() * 100)
-    },
-    locale: 'es-CL',
-    timezoneId: 'America/Santiago',
-    // Headers adicionales
-    extraHTTPHeaders: {
-      'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'DNT': '1',
-      'Upgrade-Insecure-Requests': '1',
-    }
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    viewport: { width: 1920, height: 1080 },
+    locale: 'es-CL'
   });
-
-  // Bloquear recursos innecesarios para acelerar
-  await context.route('**/*.{png,jpg,jpeg,gif,svg,ico,woff,woff2,ttf}', route => route.abort());
-  await context.route('**/google-analytics.com/**', route => route.abort());
-  await context.route('**/googletagmanager.com/**', route => route.abort());
-  await context.route('**/facebook.com/**', route => route.abort());
 
   const page = await context.newPage();
-
-  // Ocultar webdriver
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-    Object.defineProperty(navigator, 'languages', { get: () => ['es-CL', 'es', 'en'] });
-    window.chrome = { runtime: {} };
-  });
 
   try {
     console.log(`Consultando patente: ${patente} (tipo: ${tipo})`);
 
-    // Delay inicial aleatorio
-    await randomDelay(500, 1500);
-
     // Ir a la página principal
     await page.goto('https://www.patentechile.com/', {
       waitUntil: 'domcontentloaded',
-      timeout: 45000
+      timeout: 60000
     });
 
-    // Esperar a que cargue el formulario con retry
+    // Esperar a que cargue el formulario
     console.log('Esperando formulario...');
-    let formFound = false;
-    for (let i = 0; i < 3; i++) {
-      try {
-        await page.waitForSelector('#inputTerm', { timeout: 10000 });
-        formFound = true;
-        break;
-      } catch {
-        console.log(`Intento ${i + 1}: formulario no encontrado, reintentando...`);
-        await randomDelay(1000, 2000);
-      }
-    }
-
-    if (!formFound) {
-      throw new Error('No se pudo encontrar el formulario después de 3 intentos');
-    }
+    await page.waitForSelector('#inputTerm', { timeout: 30000 });
     console.log('Formulario encontrado');
 
     // Seleccionar el tipo de búsqueda si no es vehiculo
     if (tipo !== 'vehiculo') {
       const tabSelector = `.tab-item[data-type="${tipo}"]`;
       await page.click(tabSelector);
-      await randomDelay(300, 700);
+      await page.waitForTimeout(500);
     }
 
-    // Simular comportamiento humano: mover mouse antes de escribir
-    await page.mouse.move(
-      Math.random() * 500 + 100,
-      Math.random() * 300 + 100
-    );
-    await randomDelay(200, 500);
-
-    // Ingresar la patente con delay entre caracteres (simula escritura humana)
+    // Ingresar la patente
     console.log('Ingresando patente...');
-    const patenteUpper = patente.toUpperCase();
-    await page.click('#inputTerm');
-    await randomDelay(100, 300);
-
-    // Escribir caracter por caracter con delay
-    for (const char of patenteUpper) {
-      await page.keyboard.type(char, { delay: 50 + Math.random() * 100 });
-    }
+    await page.fill('#inputTerm', patente.toUpperCase());
 
     // Esperar un poco para que el JavaScript del sitio esté listo
-    await randomDelay(800, 1500);
+    await page.waitForTimeout(1000);
 
     // Hacer clic en el botón de buscar
     console.log('Haciendo clic en buscar...');
     await page.click('#searchBtn');
 
-    // Esperar a que se procese y redirija a resultados
+    // Esperar a que se procese - el sitio muestra un loading y luego redirige
     console.log('Esperando redirección a resultados...');
 
-    try {
-      await page.waitForURL('**/resultados**', { timeout: 45000 });
-    } catch (urlError) {
-      // Verificar si estamos en una página de error o captcha
-      const currentUrl = page.url();
-      console.log('URL actual:', currentUrl);
-
-      if (currentUrl.includes('captcha') || currentUrl.includes('blocked')) {
-        throw new Error('Bloqueado por CAPTCHA o protección anti-bot');
-      }
-
-      throw new Error(`Timeout esperando resultados: ${urlError.message}`);
-    }
+    // Esperar a que se procese y redirija a resultados
+    await page.waitForURL('**/resultados**', { timeout: 60000 });
 
     // Esperar a que cargue la tabla de resultados
     console.log('Esperando tabla de resultados...');
-    await randomDelay(2000, 4000);
+
+    // Esperar un poco más para que cargue completamente
+    await page.waitForTimeout(3000);
 
     // Verificar qué hay en la página
     const pageContent = await page.content();
@@ -187,6 +88,7 @@ async function consultarVehiculo(patente, tipo = 'vehiculo') {
 
     if (!tableFound) {
       console.log('No se encontró tabla, analizando contenido...');
+      // Buscar si hay contenido con información del vehículo
       const hasVehicleInfo = pageContent.includes('Patente') || pageContent.includes('Propietario');
       console.log('¿Tiene info de vehículo?:', hasVehicleInfo);
     }
@@ -337,8 +239,8 @@ async function consultarMultiples(patentes, tipo = 'vehiculo') {
   for (const patente of patentes) {
     const resultado = await consultarVehiculo(patente, tipo);
     resultados.push(resultado);
-    // Pausa aleatoria entre consultas (2-5 segundos)
-    await randomDelay(2000, 5000);
+    // Pequeña pausa entre consultas
+    await new Promise(r => setTimeout(r, 2000));
   }
   return resultados;
 }

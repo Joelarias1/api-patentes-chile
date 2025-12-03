@@ -5,7 +5,6 @@
 
 const http = require('http');
 const { consultarVehiculo, consultarMultiples, consultarMultas } = require('./playwright-scraper');
-const { consultarPropietario } = require('./volanteomaleta-scraper');
 
 const PORT = process.env.PORT || 3000;
 
@@ -76,56 +75,13 @@ async function handleRequest(req, res) {
       service: 'patente-scraper-api',
       timestamp: new Date().toISOString(),
       endpoints: {
-        'GET /propietario?patente=XXX': 'Consultar RUT y nombre del propietario',
         'GET /consultar?patente=XXX': 'Consultar info completa de vehículo',
         'GET /multas?patente=XXX': 'Consultar solo multas',
-        'POST /propietario': 'Consultar propietario con body { patente }',
         'POST /consultar': 'Consultar con body { patente, tipo }',
         'POST /multas': 'Consultar multas con body { patente }',
         'POST /consultar-multiple': 'Consultar múltiples { patentes: [] }'
       }
     });
-    return;
-  }
-
-  // Consultar propietario (volanteomaleta)
-  if (path === '/propietario') {
-    let patente;
-
-    if (method === 'GET') {
-      const query = parseQuery(url);
-      patente = query.patente;
-    } else if (method === 'POST') {
-      try {
-        const body = await parseBody(req);
-        patente = body.patente;
-      } catch (e) {
-        sendJSON(res, 400, { error: 'Invalid JSON body' });
-        return;
-      }
-    } else {
-      sendJSON(res, 405, { error: 'Method not allowed' });
-      return;
-    }
-
-    if (!patente) {
-      sendJSON(res, 400, { error: 'Patente es requerida' });
-      return;
-    }
-
-    console.log(`[API] Consultando propietario: ${patente}`);
-
-    try {
-      const resultado = await consultarPropietario(patente);
-      sendJSON(res, 200, resultado);
-    } catch (error) {
-      console.error(`[API] Error:`, error.message);
-      sendJSON(res, 500, {
-        success: false,
-        error: error.message,
-        patente: patente.toUpperCase()
-      });
-    }
     return;
   }
 
@@ -259,9 +215,8 @@ server.listen(PORT, () => {
 ║   Servidor corriendo en http://localhost:${PORT}      ║
 ╠════════════════════════════════════════════════════╣
 ║   Endpoints:                                       ║
-║   GET  /propietario?patente=XXX  (RUT y nombre)    ║
-║   GET  /consultar?patente=XXX    (info completa)   ║
-║   GET  /multas?patente=XXX       (solo multas)     ║
+║   GET  /consultar?patente=JCLJ38  (info completa)  ║
+║   GET  /multas?patente=JCLJ38     (solo multas)    ║
 ║   POST /consultar-multiple { "patentes": [...] }   ║
 ╚════════════════════════════════════════════════════╝
   `);
